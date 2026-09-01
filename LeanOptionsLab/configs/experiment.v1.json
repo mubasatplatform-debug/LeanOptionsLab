@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0",
+  "experimentId": "us-equity-options-lab-v1",
+  "underlying": "SPY",
+  "resolution": "Minute",
+  "startDate": "2021-01-01",
+  "endDate": "2025-12-31",
+  "windows": {
+    "training": {
+      "startDate": "2021-01-01",
+      "endDate": "2023-12-31"
+    },
+    "validation": {
+      "startDate": "2024-01-01",
+      "endDate": "2024-12-31"
+    },
+    "outOfSample": {
+      "startDate": "2025-01-01",
+      "endDate": "2025-12-31"
+    }
+  },
+  "strategyTemplates": [
+    {
+      "name": "Put Credit Vertical",
+      "structure": "credit-vertical",
+      "rules": {
+        "approved": false,
+        "entryRuleReference": null,
+        "exitRuleReference": null,
+        "positionSizingRuleReference": null
+      }
+    },
+    {
+      "name": "Call Credit Vertical",
+      "structure": "credit-vertical",
+      "rules": {
+        "approved": false,
+        "entryRuleReference": null,
+        "exitRuleReference": null,
+        "positionSizingRuleReference": null
+      }
+    },
+    {
+      "name": "Directional Debit Vertical",
+      "structure": "debit-vertical",
+      "rules": {
+        "approved": false,
+        "entryRuleReference": null,
+        "exitRuleReference": null,
+        "positionSizingRuleReference": null
+      }
+    }
+  ],
+  "executionCosts": {
+    "commissionPerContract": null,
+    "slippagePerContract": null,
+    "source": null
+  },
+  "resultsRoot": "results",
+  "enableLiveTrading": false,
+  "enablePaperTrading": false,
+  "useGreeks": false,
+  "useImpliedVolatility": false,
+  "useOptionUniverseData": false
+}

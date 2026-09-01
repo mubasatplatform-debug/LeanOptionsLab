@@ -1,0 +1,33 @@
+# Local LEAN engine and runtime artifacts
+/.tools/
+/data/
+/results/
+/storage/
+/backtests/
+/logs/
+**/backtests/
+**/live/
+**/optimizations/
+
+# Local credentials and certificates
+.env
+.env.*
+!.env.example
+/secrets/
+/credentials/
+*.pem
+*.key
+*.pfx
+*.p12
+
+# .NET, tests, IDE, and diagnostics
+**/bin/
+**/obj/
+/TestResults/
+/coverage/
+*.trx
+*.coverage
+.vs/
+**/.idea/
+*.user
+*.log
