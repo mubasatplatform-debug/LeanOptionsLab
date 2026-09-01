@@ -6,6 +6,7 @@
     <OutputPath>bin/$(Configuration)</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DefaultItemExcludes>$(DefaultItemExcludes);backtests/*/code/**;live/*/code/**;optimizations/*/code/**</DefaultItemExcludes>
+    <Nullable>enable</Nullable>
     <NoWarn>CS0618</NoWarn>
   </PropertyGroup>
   <ItemGroup>
