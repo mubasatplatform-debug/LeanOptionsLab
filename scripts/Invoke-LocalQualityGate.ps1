@@ -44,7 +44,8 @@ function Invoke-External {
 function Assert-NoRipgrepMatches {
     param(
         [string]$Name,
-        [string]$Pattern
+        [string]$Pattern,
+        [string[]]$AdditionalExcludes = @()
     )
 
     $searchArgs = @(
@@ -59,10 +60,14 @@ function Assert-NoRipgrepMatches {
         '-g', '!results/**',
         '-g', '!storage/**',
         '-g', '!backtests/**',
-        '-g', '!logs/**',
-        $Pattern,
-        '.'
+        '-g', '!logs/**'
     )
+
+    foreach ($exclude in $AdditionalExcludes) {
+        $searchArgs += @('-g', $exclude)
+    }
+
+    $searchArgs += @($Pattern, '.')
 
     Write-Host "==> $Name"
     $matches = & rg @searchArgs
@@ -167,21 +172,28 @@ Write-Host "finalStatus=$($report.finalStatus)"
 Write-Host "rankingStatus=$($report.rankingAssessment.status)"
 Write-Host "report=$reportPath"
 
-$legacyPattern = @(
+$legacyExecutionPattern = @(
     ('do' + 'cker'),
     ('--download' + '-data'),
-    ('lean' + '-cli'),
-    ('lean' + '\.exe'),
     (('do' + 'cker') + 'smoke'),
     ('invoke-lean' + ('do' + 'cker')),
     ('invoke-lean' + 'optionslab')
 ) -join '|'
-Assert-NoRipgrepMatches 'legacy execution reference scan' $legacyPattern
+Assert-NoRipgrepMatches 'legacy execution reference scan' $legacyExecutionPattern
 
+# The CLI remains valid for acquiring licensed data, but it is not an accepted
+# algorithm execution path. Its executable may therefore be documented only in
+# the dedicated acquisition guide; code, scripts, configs, and the README stay
+# protected from silently reintroducing it as a launcher.
+$legacyCliPattern = @(
+    ('lean' + '-cli'),
+    ('lean' + '\.exe')
+) -join '|'
+Assert-NoRipgrepMatches 'legacy CLI execution reference scan' $legacyCliPattern -AdditionalExcludes @('!docs/DATA-ACQUISITION.md')
+
+# Two unrelated policies used to share one pattern. Splitting them keeps the
+# secret scan absolute while letting the broker scan say what it actually means.
 $credentialPattern = @(
-    ('broker' + 'age'),
-    ('ib' + 'kr'),
-    ('interactive' + ' brokers'),
     ('api[-_ ]?' + 'key'),
     ('api-access' + '-token'),
     ('access[-_ ]?' + 'token'),
@@ -189,7 +201,31 @@ $credentialPattern = @(
     ('pass' + 'word'),
     ('private[-_ ]?' + 'key')
 ) -join '|'
-Assert-NoRipgrepMatches 'broker and credential scan' $credentialPattern
+Assert-NoRipgrepMatches 'credential leak scan' $credentialPattern
+
+# Names real venues explicitly instead of the generic word 'brokerage'. LEAN's
+# own config key is live-mode-brokerage and PaperBrokerage is an in-process
+# simulator that opens no connection, so the generic word stopped being evidence
+# of drift while these names never stop being evidence of it. This list is
+# strictly wider than the word it replaces: only the first two entries were
+# blocked before, the other ten were not. Entries are split across a join so
+# this scan does not match its own definition. docs/ is excluded because it
+# documents why these venues do not work here; no execution path may name them.
+$realBrokerPattern = @(
+    ('ib' + 'kr'),
+    ('interactive' + ' brokers'),
+    ('trad' + 'ier'),
+    ('alp' + 'aca'),
+    ('oan' + 'da'),
+    ('fx' + 'cm'),
+    ('zero' + 'dha'),
+    ('sam' + 'co'),
+    ('coin' + 'base'),
+    ('bit' + 'finex'),
+    ('bin' + 'ance'),
+    ('kra' + 'ken')
+) -join '|'
+Assert-NoRipgrepMatches 'real brokerage scan' $realBrokerPattern -AdditionalExcludes @('!docs/**')
 
 Invoke-External 'git diff whitespace check' { git diff --check }
 
