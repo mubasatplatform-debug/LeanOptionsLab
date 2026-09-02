@@ -13,6 +13,8 @@ $engineRoot = Join-Path $workspace '.tools\lean-engine'
 $testProject = Join-Path $workspace 'LeanOptionsLab.Tests\LeanOptionsLab.Tests.csproj'
 $toolingProject = Join-Path $workspace 'LeanOptionsLab.Tooling\LeanOptionsLab.Tooling.csproj'
 $algorithmProject = Join-Path $workspace 'LeanOptionsLab\LeanOptionsLab.csproj'
+$gatewayProject = Join-Path $workspace 'LeanOptionsLab.Gateway\LeanOptionsLab.Gateway.csproj'
+$gatewayCompose = Join-Path $workspace 'compose.gateway.yaml'
 $smokeProject = Join-Path $workspace 'tests\LocalLeanSmoke\LocalLeanSmoke.csproj'
 $experimentConfig = Join-Path $workspace 'LeanOptionsLab\configs\experiment.v1.json'
 $smokeScript = Join-Path $PSScriptRoot 'Invoke-LocalLeanSmoke.ps1'
@@ -67,7 +69,9 @@ function Assert-NoRipgrepMatches {
         $searchArgs += @('-g', $exclude)
     }
 
-    $searchArgs += @($Pattern, '.')
+    # Stop option parsing before the expression. Some forbidden command-line
+    # switches legitimately begin with "--" and must be searched as text.
+    $searchArgs += @('--', $Pattern, '.')
 
     Write-Host "==> $Name"
     $matches = & rg @searchArgs
@@ -110,6 +114,7 @@ Assert-CommandAvailable 'dotnet'
 Assert-CommandAvailable 'git'
 Assert-CommandAvailable 'rg'
 Assert-CommandAvailable 'gitleaks'
+Assert-CommandAvailable 'docker'
 
 if (-not $SkipFetch) {
     Invoke-External 'git fetch' { git fetch --all --prune }
@@ -134,6 +139,7 @@ if ($LASTEXITCODE -ne 0 -or $actualLeanCommit -ne $requiredLeanCommit) {
 Invoke-External 'LEAN source status' { git -C $engineRoot status --short }
 Invoke-External 'C# tests' { dotnet run --project $testProject --configuration Release }
 Invoke-External 'algorithm build' { dotnet build $algorithmProject --configuration Release --nologo }
+Invoke-External 'gateway build' { dotnet build $gatewayProject --configuration Release --nologo }
 Invoke-External 'smoke fixture build' { dotnet build $smokeProject --configuration Release --nologo }
 Invoke-External 'experiment config validation' {
     dotnet run --project $toolingProject --configuration Release -- validate --config $experimentConfig
@@ -173,13 +179,51 @@ Write-Host "rankingStatus=$($report.rankingAssessment.status)"
 Write-Host "report=$reportPath"
 
 $legacyExecutionPattern = @(
-    ('do' + 'cker'),
     ('--download' + '-data'),
     (('do' + 'cker') + 'smoke'),
     ('invoke-lean' + ('do' + 'cker')),
     ('invoke-lean' + 'optionslab')
 ) -join '|'
 Assert-NoRipgrepMatches 'legacy execution reference scan' $legacyExecutionPattern
+
+# The public status gateway is intentionally containerized. This validation
+# permits that current gateway while continuing to reject the retired LEAN
+# container launchers above.
+$previousGatewayImageTag = $env:GATEWAY_IMAGE_TAG
+$previousGatewayResultSource = $env:GATEWAY_RESULT_SOURCE
+$previousGatewayRunId = $env:GATEWAY_RUN_ID
+$previousGatewayHostPort = $env:GATEWAY_HOST_PORT
+try {
+    $env:GATEWAY_IMAGE_TAG = 'quality-gate'
+    $env:GATEWAY_RESULT_SOURCE = $workspace
+    $env:GATEWAY_RUN_ID = 'quality-gate'
+    $env:GATEWAY_HOST_PORT = '18080'
+    Invoke-External 'gateway compose validation' { docker compose -f $gatewayCompose config --quiet }
+}
+finally {
+    $env:GATEWAY_IMAGE_TAG = $previousGatewayImageTag
+    $env:GATEWAY_RESULT_SOURCE = $previousGatewayResultSource
+    $env:GATEWAY_RUN_ID = $previousGatewayRunId
+    $env:GATEWAY_HOST_PORT = $previousGatewayHostPort
+}
+
+$gatewayComposeText = Get-Content -LiteralPath $gatewayCompose -Raw
+$requiredGatewayControls = @(
+    'restart:\s+always',
+    '127\.0\.0\.1:',
+    'read_only:\s+true',
+    'no-new-privileges:true',
+    'cap_drop:[\s\S]*?- ALL'
+)
+foreach ($requiredGatewayControl in $requiredGatewayControls) {
+    if ($gatewayComposeText -notmatch $requiredGatewayControl) {
+        throw "Gateway container control is missing: $requiredGatewayControl"
+    }
+}
+
+if ($gatewayComposeText -match '(?m)^\s*privileged:\s*true\s*$') {
+    throw 'Gateway container must not be privileged.'
+}
 
 # The CLI remains valid for acquiring licensed data, but it is not an accepted
 # algorithm execution path. Its executable may therefore be documented only in

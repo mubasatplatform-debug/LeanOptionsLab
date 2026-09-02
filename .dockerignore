@@ -1,0 +1,14 @@
+.git
+.tools
+.env
+.env.*
+**/bin
+**/obj
+backtests
+data
+logs
+results
+secrets
+storage
+*.user
+*.suo
