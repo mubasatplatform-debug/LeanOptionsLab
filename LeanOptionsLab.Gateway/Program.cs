@@ -40,9 +40,9 @@ app.MapGet("/", () => Results.Ok(new
 {
     service = "LeanOptionsLab status gateway",
     mode = "read-only",
-    status = "/api/v1/status",
-    health = "/healthz",
-    readiness = "/readyz"
+    status = "api/v1/status",
+    health = "healthz",
+    readiness = "readyz"
 }));
 
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
