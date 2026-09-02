@@ -1,4 +1,6 @@
+using System.Net;
 using LeanOptionsLab.Domain;
+using LeanOptionsLab.Gateway;
 
 namespace LeanOptionsLab.Tests;
 
@@ -24,6 +26,12 @@ internal static class Program
             ("report status tokens preserve hyphenated contract values", ReportStatusTokensAreExact),
             ("LEAN log extractor reads only explicit lifecycle markers", LeanLogExtractorReadsExplicitMarkers),
             ("report writer emits JSON and Arabic Markdown", ReportWriterEmitsAuditableArtifacts),
+            ("gateway reader fails closed when no report exists", GatewayReaderRejectsMissingReport),
+            ("gateway reader fails closed on an invalid report", GatewayReaderRejectsInvalidReport),
+            ("gateway reader exposes only a safe invalid-data summary", GatewayReaderExposesSafeInvalidDataSummary),
+            ("gateway reader rejects paper and live reports", GatewayReaderRejectsExecutionModes),
+            ("gateway command line accepts only serve and health probe", GatewayCommandLineIsClosed),
+            ("gateway health probe exits zero only for 2xx", GatewayHealthProbeRequiresSuccess),
             ("paper readiness blocks the current unfounded configuration", PaperReadinessBlocksUnfoundedRun),
             ("paper readiness requires every barrier, not a subset", PaperReadinessRequiresEveryBarrier),
             ("paper readiness clears only when all barriers are met", PaperReadinessClearsWhenFullyApproved),
@@ -258,6 +266,155 @@ internal static class Program
         AssertTrue(json.Contains("\"ranked\"", StringComparison.Ordinal));
         AssertTrue(json.Contains("\"not-rankable\"", StringComparison.Ordinal));
         AssertTrue(json.Contains("\"invalid-data\"", StringComparison.Ordinal));
+    }
+
+    private static void GatewayReaderRejectsMissingReport()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LeanOptionsLabGatewayTests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            var reader = new GatewayStateReader(root);
+
+            AssertTrue(!reader.TryReadLatest(out var status));
+            AssertTrue(status is null);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static void GatewayReaderRejectsInvalidReport()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LeanOptionsLabGatewayTests", Guid.NewGuid().ToString("N"));
+        var runDirectory = Path.Combine(root, "invalid-report");
+
+        try
+        {
+            Directory.CreateDirectory(runDirectory);
+            File.WriteAllText(Path.Combine(runDirectory, "comparison-report.json"), "{not-json");
+            var reader = new GatewayStateReader(root);
+
+            AssertTrue(!reader.TryReadLatest(out var status));
+            AssertTrue(status is null);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static void GatewayReaderExposesSafeInvalidDataSummary()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LeanOptionsLabGatewayTests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var report = RunReportFactory.Create(
+                "gateway-invalid-data",
+                "gateway-test-version",
+                CreateConfiguration(approveRules: false, includeCosts: false),
+                new DataReadinessEvidence
+                {
+                    DataRequestFailures = 7,
+                    FailureMessages = new() { "sensitive diagnostic must not be exposed" }
+                },
+                new List<StrategyEvaluation>());
+            RunReportWriter.Write(root, report);
+
+            var reader = new GatewayStateReader(root);
+            AssertTrue(reader.TryReadLatest(out var status));
+            AssertTrue(status is not null);
+            AssertEqual("gateway-invalid-data", status!.RunId);
+            AssertEqual("invalid-data", status.FinalStatus);
+            AssertEqual("not-rankable", status.RankingStatus);
+            AssertTrue(!status.DataReady);
+            AssertTrue(!status.ExperimentReady);
+            AssertTrue(!status.LiveTrading);
+            AssertTrue(!status.PaperTrading);
+            AssertEqual(0, status.OrderEventCount);
+            AssertEqual(0, status.AssignmentEventCount);
+            AssertEqual(0, status.ExerciseEventCount);
+            AssertEqual(0, status.WriteEndpointCount);
+            AssertEqual(0, status.TriggerEndpointCount);
+
+            var safeJson = ExperimentConfigurationJson.Serialize(status);
+            AssertTrue(!safeJson.Contains("sensitive diagnostic", StringComparison.Ordinal));
+            AssertTrue(!safeJson.Contains("finalReasons", StringComparison.Ordinal));
+            AssertTrue(!safeJson.Contains("executionCosts", StringComparison.Ordinal));
+            AssertTrue(!safeJson.Contains("detail", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static void GatewayReaderRejectsExecutionModes()
+    {
+        AssertGatewayRejectsExecutionMode(CreateConfiguration(enablePaperTrading: true), "paper-report");
+        AssertGatewayRejectsExecutionMode(CreateConfiguration(enableLiveTrading: true), "live-report");
+    }
+
+    private static void AssertGatewayRejectsExecutionMode(ExperimentConfiguration configuration, string runId)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LeanOptionsLabGatewayTests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var report = RunReportFactory.Create(
+                runId,
+                "gateway-test-version",
+                configuration,
+                ReadyEvidence(),
+                CreateCompleteEvaluations());
+            RunReportWriter.Write(root, report);
+
+            var reader = new GatewayStateReader(root);
+            AssertTrue(!reader.TryReadLatest(out var status));
+            AssertTrue(status is null);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static void GatewayCommandLineIsClosed()
+    {
+        AssertEqual(GatewayCommandKind.Serve, GatewayCommandLine.Parse(Array.Empty<string>()).Kind);
+        AssertEqual(
+            GatewayCommandKind.HealthProbe,
+            GatewayCommandLine.Parse(new[] { "--health-probe" }).Kind);
+        AssertEqual(GatewayCommandKind.Invalid, GatewayCommandLine.Parse(new[] { "--unknown" }).Kind);
+        AssertEqual(
+            GatewayCommandKind.Invalid,
+            GatewayCommandLine.Parse(new[] { "--health-probe", "extra" }).Kind);
+    }
+
+    private static void GatewayHealthProbeRequiresSuccess()
+    {
+        using var successfulClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.NoContent));
+        using var failedClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.ServiceUnavailable));
+        using var unavailableClient = new HttpClient(new StubHttpMessageHandler(new HttpRequestException("offline")));
+
+        AssertEqual(0, GatewayHealthProbe.RunAsync(successfulClient).GetAwaiter().GetResult());
+        AssertEqual(1, GatewayHealthProbe.RunAsync(failedClient).GetAwaiter().GetResult());
+        AssertEqual(1, GatewayHealthProbe.RunAsync(unavailableClient).GetAwaiter().GetResult());
     }
 
     private static void LeanLogExtractorReadsExplicitMarkers()
@@ -508,6 +665,37 @@ internal static class Program
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
         {
             throw new InvalidOperationException($"Expected '{expected}', got '{actual}'.");
+        }
+    }
+
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode? _statusCode;
+        private readonly Exception? _exception;
+
+        public StubHttpMessageHandler(HttpStatusCode statusCode)
+        {
+            _statusCode = statusCode;
+        }
+
+        public StubHttpMessageHandler(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            AssertEqual(GatewayHealthProbe.Endpoint, request.RequestUri!);
+            AssertEqual(HttpMethod.Get, request.Method);
+
+            if (_exception is not null)
+            {
+                return Task.FromException<HttpResponseMessage>(_exception);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(_statusCode!.Value));
         }
     }
 }
