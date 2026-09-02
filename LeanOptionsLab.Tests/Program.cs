@@ -10,6 +10,7 @@ internal static class Program
         {
             ("configuration layout accepts the documented v1 experiment", ConfigurationLayoutIsValid),
             ("configuration layout rejects a mixed evaluation window", ConfigurationRejectsMixedWindow),
+            ("configuration validation keeps paper conditional and live prohibited", ConfigurationExecutionModesStayFailClosed),
             ("credit vertical payoff and maximum loss are bounded", CreditVerticalPayoffAndRisk),
             ("debit vertical payoff and maximum loss are bounded", DebitVerticalPayoffAndRisk),
             ("contract selection rejects a missing chain", ContractSelectionRejectsMissingChain),
@@ -22,7 +23,12 @@ internal static class Program
             ("identical top metrics produce no synthetic winner", TiedTopMetricsBlockRanking),
             ("report status tokens preserve hyphenated contract values", ReportStatusTokensAreExact),
             ("LEAN log extractor reads only explicit lifecycle markers", LeanLogExtractorReadsExplicitMarkers),
-            ("report writer emits JSON and Arabic Markdown", ReportWriterEmitsAuditableArtifacts)
+            ("report writer emits JSON and Arabic Markdown", ReportWriterEmitsAuditableArtifacts),
+            ("paper readiness blocks the current unfounded configuration", PaperReadinessBlocksUnfoundedRun),
+            ("paper readiness requires every barrier, not a subset", PaperReadinessRequiresEveryBarrier),
+            ("paper readiness clears only when all barriers are met", PaperReadinessClearsWhenFullyApproved),
+            ("paper readiness derives rules and costs from the typed configuration", PaperReadinessUsesTypedConfiguration),
+            ("paper readiness never permits live trading", PaperReadinessRejectsLiveTrading)
         };
 
         var failures = 0;
@@ -57,6 +63,21 @@ internal static class Program
 
         AssertTrue(!result.IsValid);
         AssertTrue(result.Issues.Any(issue => issue.Code == "training-window"));
+    }
+
+    private static void ConfigurationExecutionModesStayFailClosed()
+    {
+        var approvedPaper = ExperimentConfigurationValidator.Validate(
+            CreateConfiguration(enablePaperTrading: true));
+        AssertTrue(approvedPaper.IsValid, string.Join("; ", approvedPaper.Issues.Select(issue => issue.Message)));
+
+        var unfoundedPaper = ExperimentConfigurationValidator.Validate(
+            CreateConfiguration(approveRules: false, includeCosts: false, enablePaperTrading: true));
+        AssertTrue(unfoundedPaper.Issues.Any(issue => issue.Code == "paper-readiness"));
+
+        var live = ExperimentConfigurationValidator.Validate(
+            CreateConfiguration(enableLiveTrading: true));
+        AssertTrue(live.Issues.Any(issue => issue.Code == "execution-mode"));
     }
 
     private static void CreditVerticalPayoffAndRisk()
@@ -274,7 +295,10 @@ internal static class Program
     private static ExperimentConfiguration CreateConfiguration(
         bool approveRules = true,
         bool includeCosts = true,
-        DateOnly? trainingEnd = null)
+        DateOnly? trainingEnd = null,
+        bool enablePaperTrading = false,
+        bool enableLiveTrading = false,
+        string underlying = "SPY")
     {
         StrategyRules Rules() => new()
         {
@@ -286,6 +310,7 @@ internal static class Program
 
         return new ExperimentConfiguration
         {
+            Underlying = underlying,
             StrategyTemplates = new()
             {
                 new() { Name = "Put Credit Vertical", Structure = "credit-vertical", Rules = Rules() },
@@ -298,6 +323,8 @@ internal static class Program
                 SlippagePerContract = includeCosts ? 0.05m : null,
                 Source = includeCosts ? "approved-test-source" : null
             },
+            EnablePaperTrading = enablePaperTrading,
+            EnableLiveTrading = enableLiveTrading,
             Windows = new()
             {
                 Training = new(new DateOnly(2021, 1, 1), trainingEnd ?? new DateOnly(2023, 12, 31)),
@@ -367,6 +394,105 @@ internal static class Program
         RiskAdjustedReturn = riskAdjustedReturn,
         MaxDrawdown = maxDrawdown
     };
+
+    private static void PaperReadinessBlocksUnfoundedRun()
+    {
+        var decision = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(approveRules: false, includeCosts: false),
+            approvedLiveDataProviderConfigured: false,
+            brokerageIsPaperOnly: false);
+
+        AssertTrue(!decision.IsReady, "An empty evidence set must not clear the paper gate.");
+        AssertEqual(5, decision.Reasons.Count);
+        AssertTrue(
+            decision.Reasons.Any(reason => reason.Contains("enablePaperTrading", StringComparison.Ordinal)),
+            "The blocking reason must name the tracked config field.");
+        AssertTrue(
+            decision.Reasons.Contains(LivePaperReadinessGate.NoApprovedDataProviderReason),
+            "The missing live data provider must be reported verbatim.");
+    }
+
+    private static void PaperReadinessRequiresEveryBarrier()
+    {
+        var mutations = new (string Barrier, ExperimentConfiguration Configuration, bool ProviderApproved, bool PaperOnly)[]
+        {
+            ("paper trading flag", CreateConfiguration(), true, true),
+            ("live data provider", CreateConfiguration(enablePaperTrading: true), false, true),
+            ("strategy rules", CreateConfiguration(approveRules: false, enablePaperTrading: true), true, true),
+            ("execution costs", CreateConfiguration(includeCosts: false, enablePaperTrading: true), true, true),
+            ("paper-only brokerage", CreateConfiguration(enablePaperTrading: true), true, false)
+        };
+
+        foreach (var mutation in mutations)
+        {
+            var decision = LivePaperReadinessGate.Evaluate(
+                mutation.Configuration,
+                mutation.ProviderApproved,
+                mutation.PaperOnly);
+            AssertTrue(!decision.IsReady, $"Dropping the {mutation.Barrier} barrier must block the paper gate.");
+        }
+    }
+
+    private static void PaperReadinessClearsWhenFullyApproved()
+    {
+        var decision = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(enablePaperTrading: true),
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+
+        AssertTrue(decision.IsReady, string.Join("; ", decision.Reasons));
+        AssertEqual(0, decision.Reasons.Count);
+    }
+
+    private static void PaperReadinessUsesTypedConfiguration()
+    {
+        var ready = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(enablePaperTrading: true),
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+        AssertTrue(ready.IsReady, string.Join("; ", ready.Reasons));
+
+        var incomplete = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(approveRules: false, includeCosts: false, enablePaperTrading: true),
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+        AssertTrue(!incomplete.IsReady);
+        AssertTrue(incomplete.Reasons.Any(reason => reason.StartsWith("Entry, exit", StringComparison.Ordinal)));
+        AssertTrue(incomplete.Reasons.Any(reason => reason.StartsWith("Commission, slippage", StringComparison.Ordinal)));
+
+        var emptyTemplates = LivePaperReadinessGate.Evaluate(
+            new ExperimentConfiguration
+            {
+                EnablePaperTrading = true,
+                ExecutionCosts = new()
+                {
+                    CommissionPerContract = 0.65m,
+                    SlippagePerContract = 0.05m,
+                    Source = "approved-test-source"
+                }
+            },
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+        AssertTrue(!emptyTemplates.IsReady, "An empty strategy collection must not pass vacuously.");
+
+        var wrongUnderlying = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(enablePaperTrading: true, underlying: "QQQ"),
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+        AssertTrue(!wrongUnderlying.IsReady, "An invalid experiment layout must not clear the paper gate.");
+        AssertTrue(wrongUnderlying.Reasons.Any(reason => reason.Contains("[underlying]", StringComparison.Ordinal)));
+    }
+
+    private static void PaperReadinessRejectsLiveTrading()
+    {
+        var decision = LivePaperReadinessGate.Evaluate(
+            CreateConfiguration(enablePaperTrading: true, enableLiveTrading: true),
+            approvedLiveDataProviderConfigured: true,
+            brokerageIsPaperOnly: true);
+
+        AssertTrue(!decision.IsReady);
+        AssertTrue(decision.Reasons.Any(reason => reason.Contains("Live trading is prohibited", StringComparison.Ordinal)));
+    }
 
     private static void AssertTrue(bool condition, string? message = null)
     {

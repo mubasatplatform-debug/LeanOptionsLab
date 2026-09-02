@@ -15,6 +15,8 @@
   "symbol-minute-limit": 10000,
   "symbol-second-limit": 10000,
   "symbol-tick-limit": 10000,
+  "live-cash-balance": "",
+  "live-holdings": "[]",
   "environments": {
     "backtesting": {
       "live-mode": false,
@@ -22,6 +24,19 @@
       "result-handler": "QuantConnect.Lean.Engine.Results.BacktestingResultHandler",
       "data-feed-handler": "QuantConnect.Lean.Engine.DataFeeds.FileSystemDataFeed",
       "real-time-handler": "QuantConnect.Lean.Engine.RealTime.BacktestingRealTimeHandler",
+      "history-provider": [
+        "QuantConnect.Lean.Engine.HistoricalData.SubscriptionDataReaderHistoryProvider"
+      ],
+      "transaction-handler": "QuantConnect.Lean.Engine.TransactionHandlers.BacktestingTransactionHandler"
+    },
+    "live-paper": {
+      "live-mode": true,
+      "live-mode-brokerage": "PaperBrokerage",
+      "setup-handler": "QuantConnect.Lean.Engine.Setup.BrokerageSetupHandler",
+      "result-handler": "QuantConnect.Lean.Engine.Results.LiveTradingResultHandler",
+      "data-feed-handler": "QuantConnect.Lean.Engine.DataFeeds.LiveTradingDataFeed",
+      "data-queue-handler": ["LeanOptionsLab.LiveData.OptionsLabLiveDataQueue"],
+      "real-time-handler": "QuantConnect.Lean.Engine.RealTime.LiveTradingRealTimeHandler",
       "history-provider": [
         "QuantConnect.Lean.Engine.HistoricalData.SubscriptionDataReaderHistoryProvider"
       ],

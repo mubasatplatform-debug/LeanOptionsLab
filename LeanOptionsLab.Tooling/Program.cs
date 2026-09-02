@@ -19,6 +19,7 @@ internal static class Program
             return args[0] switch
             {
                 "validate" => Validate(options),
+                "paper-readiness" => PaperReadiness(options),
                 "write-report" => WriteReport(options),
                 _ => UnknownCommand(args[0])
             };
@@ -47,6 +48,23 @@ internal static class Program
         }
 
         return 2;
+    }
+
+    private static int PaperReadiness(IReadOnlyDictionary<string, string> options)
+    {
+        var configuration = ExperimentConfigurationJson.Load(Required(options, "--config"));
+        var decision = LivePaperReadinessGate.Evaluate(
+            configuration,
+            ParseBoolean(options, "--approved-live-data-provider"),
+            ParseBoolean(options, "--paper-only-brokerage"));
+
+        Console.WriteLine($"ready={decision.IsReady.ToString().ToLowerInvariant()}");
+        foreach (var reason in decision.Reasons)
+        {
+            Console.WriteLine($"barrier=BLOCKED|{reason}");
+        }
+
+        return decision.IsReady ? 0 : 3;
     }
 
     private static int WriteReport(IReadOnlyDictionary<string, string> options)
@@ -128,6 +146,14 @@ internal static class Program
     private static string? Optional(IReadOnlyDictionary<string, string> options, string name) =>
         options.TryGetValue(name, out var value) ? value : null;
 
+    private static bool ParseBoolean(IReadOnlyDictionary<string, string> options, string name)
+    {
+        var raw = Required(options, name);
+        return bool.TryParse(raw, out var value)
+            ? value
+            : throw new ArgumentException($"Option {name} must be true or false.");
+    }
+
     private static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"Unknown command '{command}'.");
@@ -139,6 +165,7 @@ internal static class Program
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  validate --config <experiment.json>");
+        Console.WriteLine("  paper-readiness --config <experiment.json> --approved-live-data-provider <true|false> --paper-only-brokerage <true|false>");
         Console.WriteLine("  write-report --config <experiment.json> --output-root <results> --run-id <id> [--code-version <version>] [--data-evidence <json>] [--evaluations <json>] [--lean-log <log>] [--order-events <json>] [--assignment-events <json>] [--exercise-events <json>]");
     }
 }

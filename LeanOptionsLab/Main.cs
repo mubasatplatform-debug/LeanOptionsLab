@@ -1,5 +1,6 @@
 using System;
-using LeanOptionsLab.Domain;
+using System.Linq;
+using QuantConnect;
 using QuantConnect.Algorithm;
 using QuantConnect.Data;
 using QuantConnect.Orders;
@@ -7,7 +8,7 @@ using QuantConnect.Orders;
 namespace QuantConnect.Algorithm.CSharp;
 
 /// <summary>
-/// Local-only US equity options laboratory.
+/// Backtest-only US equity options laboratory.
 ///
 /// This v1 algorithm deliberately never submits an order. The tracked experiment
 /// configuration leaves entry, exit, and execution-cost rules unapproved, so any
@@ -19,6 +20,10 @@ public sealed class LeanOptionsLab : QCAlgorithm
 {
     private int _assignmentEventCount;
     private bool _reportedNoTradeGate;
+    private Symbol? _optionSymbol;
+    private long _dataSliceCount;
+    private long _optionChainSliceCount;
+    private long _optionContractObservationCount;
 
     public override void Initialize()
     {
@@ -29,16 +34,24 @@ public sealed class LeanOptionsLab : QCAlgorithm
         AddEquity("SPY", Resolution.Minute);
 
         var option = AddOption("SPY", Resolution.Minute);
+        _optionSymbol = option.Symbol;
         option.SetFilter(-10, 10, TimeSpan.Zero, TimeSpan.FromDays(45));
 
         Debug("OPTIONS_LAB|initialized|underlying=SPY|resolution=Minute|"
-            + "period=2021-01-01..2025-12-31|mode=local-backtest-only");
+            + "period=2021-01-01..2025-12-31|mode=backtest-only");
         Debug("OPTIONS_LAB|gate=no-orders|reason=entry_exit_and_execution_rules_not_approved");
         Debug("OPTIONS_LAB|lifecycle=default-lean-exercise-and-assignment-models");
     }
 
     public override void OnData(Slice data)
     {
+        _dataSliceCount++;
+        if (_optionSymbol is not null && data.OptionChains.TryGetValue(_optionSymbol, out var chain))
+        {
+            _optionChainSliceCount++;
+            _optionContractObservationCount += chain.Count();
+        }
+
         // No rules are approved in v1. Do not infer a strike, expiry, quote, fee, or
         // slippage assumption from the incoming chain. The pure C# selection gate is
         // tested separately and must approve a candidate before later versions trade.
@@ -75,6 +88,8 @@ public sealed class LeanOptionsLab : QCAlgorithm
     public override void OnEndOfAlgorithm()
     {
         Debug($"OPTIONS_LAB|completed|assignment-events={_assignmentEventCount}|"
-            + "orders-submitted=0|ranking=blocked-until-data-and-rules-are-approved");
+            + $"data-slices={_dataSliceCount}|option-chain-slices={_optionChainSliceCount}|"
+            + $"option-contract-observations={_optionContractObservationCount}|orders-submitted=0|"
+            + "ranking=blocked-until-data-and-rules-are-approved");
     }
 }

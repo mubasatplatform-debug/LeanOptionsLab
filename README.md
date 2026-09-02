@@ -34,11 +34,11 @@
 
 لتهيئة المحرك من البداية، استخدم نسخة المصدر المثبتة فقط:
 
-~~~
+```
 git clone --filter=blob:none https://github.com/QuantConnect/Lean.git .tools\lean-engine
 git -C .tools\lean-engine checkout --detach abeb0a0627ec484b92291c45c3f2553726c26199
 dotnet build .tools\lean-engine\Launcher\QuantConnect.Lean.Launcher.csproj --configuration Release --nologo
-~~~
+```
 
 `lean.json` يعرّف بيئة backtesting والموفر المحلي فقط. السكربتات تمرر إليه صراحة مسار DLL واسم الخوارزمية ومجلد `data/` ومجلد `results/<run-id>`؛ ولا تقبل بيانات اعتماد أو إعدادات وسيط.
 
@@ -48,33 +48,33 @@ dotnet build .tools\lean-engine\Launcher\QuantConnect.Lean.Launcher.csproj --con
 
 شغّل اختبارات C# الذاتية:
 
-~~~
+```
 dotnet run --project .\LeanOptionsLab.Tests\LeanOptionsLab.Tests.csproj
-~~~
+```
 
 تحقق من شكل إعداد التجربة:
 
-~~~
+```
 dotnet run --project .\LeanOptionsLab.Tooling\LeanOptionsLab.Tooling.csproj -- validate --config .\LeanOptionsLab\configs\experiment.v1.json
-~~~
+```
 
 لتشغيل بوابة الجودة المحلية كاملة قبل أي مراجعة أو التزام مستقبلي:
 
-~~~
+```
 .\scripts\Invoke-LocalQualityGate.ps1
-~~~
+```
 
 اختبر بناء وتشغيل LEAN Launcher المحلي من دون اشتراك بيانات أو أمر:
 
-~~~
+```
 .\scripts\Invoke-LocalLeanSmoke.ps1
-~~~
+```
 
 لتشغيل المختبر الحقيقي بعد توفير بيانات محلية مدققة:
 
-~~~
+```
 .\scripts\Invoke-LocalLeanBacktest.ps1
-~~~
+```
 
 لا تمرر بيانات مخترعة. عند تشغيل المختبر بلا بيانات محلية، ينشئ التقرير حالة `invalid-data` ولا يخرج ترتيباً. إن أعاد المحرك رمز خروج لنقص البيانات، يكتب السكربت التقرير أولاً ثم يعيد رمز الخروج نفسه حتى لا يخفي الفشل.
 
@@ -98,3 +98,59 @@ dotnet run --project .\LeanOptionsLab.Tooling\LeanOptionsLab.Tooling.csproj -- v
 - comparison-report.ar.md
 
 وتحتوي الإعداد، نسخة الكود، قرار تحقق البيانات، قرار الترتيب، وأحداث Order/Assignment/Exercise. سكربت Backtest يلتقط تلقائياً علامات `OPTIONS_LAB` من أول ملف سجل داخل مجلد التشغيل، ويمكن تمرير سجل محدد عبر LeanLogPath عند الحاجة. مجلدات data وresults وlogs وstorage وملفات الاعتماد مستبعدة من Git.
+
+## بيانات العيّنة وإثبات المعالجة
+
+مجلد `data/` مستبعد من Git، فالاستنساخ يأتي بلا أي بيانات سوق: الاختبارات تنجح لكن `LocalDataProof` لا يجد شيئاً حتى تُبذر العيّنة. مصدر LEAN المثبّت يحوي بيانات سوق حقيقية لذلك. لبذرها في `data/`:
+
+```
+.\scripts\Invoke-LocalSampleDataSeed.ps1
+```
+
+تغطّي **GOOG** في 2015-12-23 و2015-12-24 و2015-12-28 — وهي الأيام الوحيدة التي يتقاطع فيها universe الأوبشن مع ملفات الدقيقة. SPY **لا يملك يوماً متقاطعاً** في العيّنة، لذا لا تفيد تجربة v1 التي تبقى `invalid-data` إلى أن تتوفر بيانات SPY لـ2021‑2025. التراجع: `-Remove`.
+
+خوارزمية `tests/LocalDataProof` تشغّل المحرّك على هذه البيانات وتَعُدّ ما استلمه فعلاً.
+
+⚠️ **العمودان أدناه تشغيلان مختلفان، لا «قبل وبعد» للتشغيل نفسه.** الأول هو تجربة v1 على SPY عبر 2021‑2025، والثاني خوارزمية إثبات على GOOG عبر ثلاثة أيام بفلتر `±2` سعر تنفيذ. البذر **لم يُصلح** v1 ولا يستطيع: لا توجد بيانات SPY لتلك الفترة.
+
+|               | v1 (SPY، 2021‑2025) | LocalDataProof (GOOG، 3 أيام) |
+| ------------- | ------------------- | ----------------------------- |
+| نقاط البيانات | `1`                 | `38,629`                      |
+| معدل المعالجة | `0k/s`              | `167k/s`                      |
+| طلبات ناجحة   | `0` من `3,768`      | `42` من `125`                 |
+
+طلبات `LocalDataProof` تفشل بنسبة **66%** وهذا متوقّع: العيّنة محدودة، فتُطلب عقود غير موجودة داخل الأرشيفات، وتُطلب أيام 2015‑12‑25 و2015‑12‑26 (عطلة ونهاية أسبوع). المهم أن `universe` نجح `3/3` وأن الأرقام ثابتة عبر التشغيلات.
+
+⚠️ زمن التشغيل هو المؤشّر الأول على وجود البيانات: انتهاء Backtest في جزء من الثانية يعني مجلد بيانات فارغاً، مهما كان رمز الخروج `0`.
+
+بذر `map_files` و`factor_files` **يغيّر سلوك v1 أيضاً**: قبله كان يتوقف عند `2021-01-01` لتعذّر حلّ الرمز، وبعده يتقدّم إلى `2021-03-19`. الحالة النهائية تبقى `invalid-data` في الحالتين. لهذا يُبقي `-Remove` هذين المجلدين ويحذف مجلدات GOOG وحدها.
+
+## فجوة البيانات والحصول عليها
+
+لقياس ما ينقص تجربة v1 بالضبط — من طلبات المحرّك الفعلية لا من تقدير:
+
+```
+.\scripts\Invoke-LocalDataGapReport.ps1
+```
+
+يقرأ `failed-data-requests-*.txt` من آخر تشغيل ويصنّف النقص. المسار الكامل للحصول على البيانات، وصيغة LEAN على القرص لأي مصدر آخر، في [docs/DATA-ACQUISITION.md](docs/DATA-ACQUISITION.md).
+
+## هيكل التداول الورقي
+
+بيئة `live-paper` معرّفة في `lean.json` مع `PaperBrokerage`، ومزوّد البيانات مقبس مفتوح عمداً: `LeanOptionsLab/LiveData/OptionsLabLiveDataQueue.cs` يرفض بوضوح بدل توليد أسعار مصطنعة. للتحقق من الأسلاك والشروط الخمسة (أربعة منها محجوبة حالياً) بلا إنشاء أي مجلد تشغيل:
+
+```
+.\scripts\Invoke-LocalPaperReadiness.ps1
+```
+
+التفاصيل وشرط إغلاق المقبس في [docs/PAPER-TRADING.md](docs/PAPER-TRADING.md). `enableLiveTrading` يبقى `false`، والسكربت يرفض العمل إن وجده `true`.
+
+## النشر السحابي
+
+`LeanOptionsLab/Main.cs` أصبح ملف خوارزمية C# مستقلاً مرشحاً لـQuantConnect Cloud، واجتاز البناء المحلي وهو يحصي شرائح البيانات والعقود مع إبقاء `orders-submitted=0`. لم يُنفذ Cloud Build أو Cloud Backtest بعد؛ مسار Web IDE، معيار القبول، ولماذا Paper وLive ما زالا No-Go موثقة في [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## التدشين على الخادم
+
+كل ما سبق يصف سير العمل المحلي على ويندوز، وهو المسار الأساسي ويبقى كما هو. **إضافةً إليه** تُشغَّل النسخة نفسها على خادم Linux (`srv1125123`) بالمصدر ومحرّك LEAN ذاتهما، وبالحواجز والحالات ذاتها. الخادم ليس بديلاً عن المسار المحلي، ولا يضيف خدمة ويب ولا منفذاً ولا تداولاً.
+
+تخطيط الخادم، وإجراء التدشين منقولاً من التشغيل الفعلي، وأدلة آخر تشغيل، والقيود الأمنية المفتوحة — كلها في [docs/LAUNCH-2026-09-01.md](docs/LAUNCH-2026-09-01.md). لا يوجد سكربت نشر متتبَّع بعد.

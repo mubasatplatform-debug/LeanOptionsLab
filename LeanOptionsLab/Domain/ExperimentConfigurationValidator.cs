@@ -70,9 +70,19 @@ public static class ExperimentConfigurationValidator
             issues.Add(new("results-root", "Results must be written below the relative results/<run-id> root."));
         }
 
-        if (configuration.EnableLiveTrading || configuration.EnablePaperTrading)
+        if (configuration.EnableLiveTrading)
         {
-            issues.Add(new("execution-mode", "Live and paper trading are prohibited in this local research lab."));
+            issues.Add(new("execution-mode", "Live trading is prohibited in this research lab."));
+        }
+
+        if (configuration.EnablePaperTrading
+            && (configuration.StrategyTemplates.Count == 0
+                || configuration.StrategyTemplates.Any(template => !template.Rules.IsCompleteAndApproved)
+                || !configuration.ExecutionCosts.IsComplete))
+        {
+            issues.Add(new(
+                "paper-readiness",
+                "Paper trading requires complete approved strategy rules and execution-cost assumptions."));
         }
 
         if (configuration.UseGreeks || configuration.UseImpliedVolatility || configuration.UseOptionUniverseData)
