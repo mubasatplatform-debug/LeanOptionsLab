@@ -16,6 +16,7 @@ $algorithmProject = Join-Path $workspace 'LeanOptionsLab\LeanOptionsLab.csproj'
 $gatewayProject = Join-Path $workspace 'LeanOptionsLab.Gateway\LeanOptionsLab.Gateway.csproj'
 $gatewayCompose = Join-Path $workspace 'compose.gateway.yaml'
 $smokeProject = Join-Path $workspace 'tests\LocalLeanSmoke\LocalLeanSmoke.csproj'
+$dataProofProject = Join-Path $workspace 'tests\LocalDataProof\LocalDataProof.csproj'
 $experimentConfig = Join-Path $workspace 'LeanOptionsLab\configs\experiment.v1.json'
 $smokeScript = Join-Path $PSScriptRoot 'Invoke-LocalLeanSmoke.ps1'
 $backtestScript = Join-Path $PSScriptRoot 'Invoke-LocalLeanBacktest.ps1'
@@ -141,6 +142,7 @@ Invoke-External 'C# tests' { dotnet run --project $testProject --configuration R
 Invoke-External 'algorithm build' { dotnet build $algorithmProject --configuration Release --nologo }
 Invoke-External 'gateway build' { dotnet build $gatewayProject --configuration Release --nologo }
 Invoke-External 'smoke fixture build' { dotnet build $smokeProject --configuration Release --nologo }
+Invoke-External 'data proof fixture build' { dotnet build $dataProofProject --configuration Release --nologo }
 Invoke-External 'experiment config validation' {
     dotnet run --project $toolingProject --configuration Release -- validate --config $experimentConfig
 }

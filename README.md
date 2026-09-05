@@ -107,6 +107,12 @@ dotnet run --project .\LeanOptionsLab.Tooling\LeanOptionsLab.Tooling.csproj -- v
 .\scripts\Invoke-LocalSampleDataSeed.ps1
 ```
 
+ثم شغّل إثبات وصول بيانات الأوبشن فعلياً إلى الخوارزمية، مع التحقق من بقاء عدد الأوامر صفراً:
+
+```
+.\scripts\Invoke-LocalDataProof.ps1
+```
+
 تغطّي **GOOG** في 2015-12-23 و2015-12-24 و2015-12-28 — وهي الأيام الوحيدة التي يتقاطع فيها universe الأوبشن مع ملفات الدقيقة. SPY **لا يملك يوماً متقاطعاً** في العيّنة، لذا لا تفيد تجربة v1 التي تبقى `invalid-data` إلى أن تتوفر بيانات SPY لـ2021‑2025. التراجع: `-Remove`.
 
 خوارزمية `tests/LocalDataProof` تشغّل المحرّك على هذه البيانات وتَعُدّ ما استلمه فعلاً.
