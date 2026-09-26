@@ -1,15 +1,8 @@
 name: CodeQL
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: '17 3 * * 2'
-  workflow_dispatch:
-
-# The workflow itself gets no token; the job below asks for exactly what it needs.
 permissions: {}
 
 concurrency:
